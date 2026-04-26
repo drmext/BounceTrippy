@@ -1,4 +1,4 @@
-import { Box, Button, Divider, Heading, Input, Select, Text, VStack } from "@chakra-ui/react";
+import { Box, Button, Divider, Heading, HStack, IconButton, Input, Select, Text, Tooltip, VStack } from "@chakra-ui/react";
 import { addDashToId } from "../helpers";
 import { rivalKeysSP, rivalKeysDP, iidxSettingsFormConfig } from "./iidx-settings-form-config";
 
@@ -125,51 +125,77 @@ const IidxProfilesSection = ({
 
     const smallInputWidth = "6.6rem";
 
+    const profilesSection = <Box w={"100%"} fontSize="0.75rem">
+        <Box mb="0.5rem">
+            <Text>ID</Text>
+            <HStack spacing={1} w="100%">
+                <Select
+                    value={selectedProfileId ?? ""}
+                    onChange={(e) => setSelectedProfileId(e.target.value)}
+                    w={!selectedProfileId ? "100%" : smallInputWidth}
+                    placeholder="Select a Profile"
+                >
+                    {profileIds?.map((profileId) => (
+                        <option
+                            style={{ height: "2rem" }}
+                            label={`${addDashToId(profileId)} - ${profiles.find((p) => p.iidx_id === profileId)?.card
+                                }`}
+                            value={profileId}
+                            key={`profile-${profileId}`}
+                        ></option>
+                    ))}
+                </Select>
+            </HStack>
+        </Box>
+        <Box mb="0.5rem">
+            <Text>Card</Text>
+            <Input
+                value={newCard}
+                onChange={(e) => setNewCard(e.target.value)}
+            />
+        </Box>
+        <Box mb="0.5rem">
+            <Text>Pin</Text>
+            <Input
+                value={newPin}
+                type="password"
+                onChange={(e) => setNewPin(e.target.value)}
+            />
+        </Box>
+        {selectedProfileId ? (
+            <>
+                <br />
+                <Divider />
+                <br />
+            </>
+        ) : null}
+    </Box>
+
     return (
         <>
-            <Heading size="md" textAlign="left" mb="0.5rem">Profile</Heading>
+            <HStack align="center" spacing={1} mb="0.5rem">
+                <Heading size="md" textAlign="left">
+                    Profile
+                </Heading>
+                {selectedProfileId ? (
+                    <Tooltip label="Deselect" hasArrow placement="top">
+                        <IconButton
+                            aria-label="Deselect profile"
+                            size="xs"
+                            variant="ghost"
+                            minW="1.5rem"
+                            w="1.5rem"
+                            h="1.5rem"
+                            onClick={() => setSelectedProfileId("")}
+                            icon={<Box as="span" lineHeight="1" fontSize="0.8rem">✕</Box>}
+                        />
+                    </Tooltip>
+                ) : null}
+            </HStack>
+            {profilesSection}
 
             <VStack fontSize="0.75rem" width="10rem">
                 <br />
-                {/* Main DDR Settings */}
-                <Box w={"100%"}>
-                    <Box mb="0.5rem">
-                        <Text>ID</Text>
-                        <Select
-                            placeholder={"Select a Profile"}
-                            onChange={(e) => setSelectedProfileId(e.target.value)}
-                            w={!selectedProfileId ? "100%" : smallInputWidth}
-                        >
-                            {profileIds?.map((profileId) => (
-                                <option
-                                    style={{ height: "2rem" }}
-                                    label={`${addDashToId(profileId)} - ${profiles.find((p) => p.iidx_id === profileId)?.card
-                                        }`}
-                                    value={profileId}
-                                ></option>
-                            ))}
-                        </Select>
-                    </Box>
-                    <Box mb="0.5rem">
-                        <Text>Card</Text>
-                        <Input
-                            value={newCard}
-                            onChange={(e) => setNewCard(e.target.value)}
-                        // style={{ fontSize: "0.75rem" }}
-                        />
-                    </Box>
-                    <Box mb="0.5rem">
-                        <Text>Pin</Text>
-                        <Input
-                            value={newPin}
-                            type="password"
-                            onChange={(e) => setNewPin(e.target.value)}
-                        />
-                    </Box>
-                    <br />
-                    <Divider />
-                    <br />
-                </Box>
                 {!selectedProfileId
                     ? null
                     : iidxSettingsFormConfig({
@@ -182,20 +208,17 @@ const IidxProfilesSection = ({
                     ))}
                 <br />
                 <br />
-                <Button
-                    onClick={saveAll}
-                    width="100%"
-                    size="sm"
-                    //color="white"
-                    //backgroundColor="#f00"
-                    variant="save"
-                    // textShadow="-1px -1px 0 #f00, 1px -1px 0 #f00, -1px 1px 0 #f00, 1px 1px 0 #f00"
-                    //outline="0.5px solid #f00"
-                    //textStroke="2px #f00"
-                    disabled={savingInProgress}
-                >
-                    Save Settings
-                </Button>
+                {!selectedProfileId ? null : (
+                    <Button
+                        onClick={saveAll}
+                        width="100%"
+                        size="sm"
+                        variant="save"
+                        disabled={savingInProgress}
+                    >
+                        Save Settings
+                    </Button>
+                )}
             </VStack>
             <br />
             <br />

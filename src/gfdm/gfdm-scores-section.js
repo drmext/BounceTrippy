@@ -12,6 +12,7 @@ import {
   Tooltip,
   Flex,
   Box,
+  useColorModeValue,
 } from "@chakra-ui/react";
 import { DateTime, Interval } from "luxon";
 
@@ -190,19 +191,24 @@ const getTimeSincePlayed = (timestamp) => {
 const sortScoresByTimestampDesc = (scores) =>
   JSON.parse(JSON.stringify(scores)).reverse();
 
-const GfdmScoresSection = ({ selectedDdrProfileId, getScoresQuery, DDR_MDB }) => (
+const GfdmScoresSection = ({ selectedDdrProfileId, getScoresQuery, DDR_MDB }) => {
+  const rowHoverBg = useColorModeValue("gray.100", "gray.700");
+  const cellTextColor = useColorModeValue("gray.900", "gray.100");
+
+  return (
   <>
-    <Heading size="md" textAlign="left" mb="0.5rem">
-      Scores
-    </Heading>
-    <Box>
-      {!selectedDdrProfileId || getScoresQuery?.isError ? (
-        <Text>coming soon</Text>
-      ) : getScoresQuery?.isLoading ? (
-        <Text>Loading...</Text>
-      ) : (
-        <TableContainer>
-          <Table variant="simple">
+    <Box w="100%" maxW="60rem" mx="auto">
+      <Heading size="md" textAlign="left" mb="0.5rem">
+        Scores
+      </Heading>
+      <Box>
+        {!selectedDdrProfileId || getScoresQuery?.isError ? (
+          <Text>coming soon</Text>
+        ) : getScoresQuery?.isLoading ? (
+          <Text>Loading...</Text>
+        ) : (
+          <TableContainer>
+            <Table variant="simple">
             <Thead>
               <Tr>
                 <Th>Song</Th>
@@ -223,7 +229,7 @@ const GfdmScoresSection = ({ selectedDdrProfileId, getScoresQuery, DDR_MDB }) =>
                   timestamp,
                   rank,
                 }) => (
-                  <Tr _hover={{ backgroundColor: '#EEE'}} key={`gfdm-score-${mcode}`}>
+                  <Tr _hover={{ backgroundColor: rowHoverBg }} key={`gfdm-score-${mcode}`}>
                     <Td maxW="14rem">
                       <Tooltip
                         hasArrow
@@ -232,7 +238,7 @@ const GfdmScoresSection = ({ selectedDdrProfileId, getScoresQuery, DDR_MDB }) =>
                         placement="top-start"
                       >
                         <Text
-                          color="black"
+                          color={cellTextColor}
                           background="none"
                           fontWeight="400"
                           maxW="14rem"
@@ -245,13 +251,13 @@ const GfdmScoresSection = ({ selectedDdrProfileId, getScoresQuery, DDR_MDB }) =>
                       </Tooltip>
                     </Td>
                     <Td>
-                      <Badge color="black" background="none" fontWeight="400">
+                      <Badge color={cellTextColor} background="none" fontWeight="400">
                         {formatDifficulty(DDR_MDB, mcode, difficulty)}
                       </Badge>
                     </Td>
                     <Td>
                       <Badge
-                        color="black"
+                        color={cellTextColor}
                         background="none"
                         border={`0px solid rgb(${rankMap[rank].rgb})`}
                         width="2.25rem"
@@ -276,7 +282,7 @@ const GfdmScoresSection = ({ selectedDdrProfileId, getScoresQuery, DDR_MDB }) =>
                         placement="top-end"
                       >
                         <Badge
-                          color="black"
+                          color={cellTextColor}
                           background="none"
                           width="4rem"
                           textAlign="center"
@@ -306,7 +312,7 @@ const GfdmScoresSection = ({ selectedDdrProfileId, getScoresQuery, DDR_MDB }) =>
                         aria-label={getTimeSincePlayed(timestamp)}
                         placement="top-end"
                       >
-                        <Badge color="black" background="none" fontWeight="400">
+                        <Badge color={cellTextColor} background="none" fontWeight="400">
                           {formatTimestamp(timestamp)}
                         </Badge>
                       </Tooltip>
@@ -317,10 +323,12 @@ const GfdmScoresSection = ({ selectedDdrProfileId, getScoresQuery, DDR_MDB }) =>
             </Tbody>
 
           </Table>
-        </TableContainer>
-      )}
+          </TableContainer>
+        )}
+      </Box>
     </Box>
   </>
-);
+  );
+};
 
 export default GfdmScoresSection;

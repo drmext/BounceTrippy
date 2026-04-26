@@ -1,4 +1,5 @@
-import { Flex, Input, Select, Switch } from "@chakra-ui/react";
+import React from "react";
+import { Flex, Input, Select, Switch, Text } from "@chakra-ui/react";
 import { addDashToId, buildOptions, fromOnOff, parseCommon, patchCommonWithName, toOnOff } from "../helpers";
 
 const dropdownOptions = {
@@ -43,19 +44,17 @@ const filterRivalIds = ({ profileIds, currentRivalKey, ddrVersionSettings, profi
     (key) => ddrVersionSettings?.[key]
   );
 
-  const profilesWithoutCurrentVersion = profiles
-    ?.filter((p) => !Object.keys(p.version).includes(selectedDdrVersionKey))
-    ?.map((p) => p.ddr_id);
+  // Allow rivals across *any* DDR version (19/20/etc).
+  // Still avoid duplicates by operating on unique `ddr_id`s (one entry per profile).
+  const uniqueProfileIds = Array.from(new Set(profileIds || []));
 
   // cant be yours
   // cant be already selected
-  // must have the same version as currently selected
 
-  const filteredRivalIds = profileIds?.filter(
+  const filteredRivalIds = uniqueProfileIds?.filter(
     (id) =>
       ![
         ...alreadySelectedRivalIds,
-        ...profilesWithoutCurrentVersion,
         parseInt(selectedDdrProfileId),
       ].includes(id)
   );
@@ -65,12 +64,76 @@ const filterRivalIds = ({ profileIds, currentRivalKey, ddrVersionSettings, profi
 const getNameFromProfileIdAndVersionKey = (profiles, profileId, versionKey) => {
   const profile = profiles.find((p) => p.ddr_id === profileId);
   const profileVersion = profile?.version?.[versionKey];
-  return parseCommon(profileVersion?.common)?.name;
+  if (`${versionKey}` === "20") {
+    return profileVersion?.common_dancername || parseCommon(profileVersion?.common)?.name || "??";
+  }
+  return parseCommon(profileVersion?.common)?.name || "??";
+};
+
+const CustomizeDropdownEditor = ({ customize, onChangeCustomize }) => {
+  const current = customize && typeof customize === "object" ? customize : {};
+  const topKeys = Object.keys(current).length ? Object.keys(current) : ["1", "2", "3", "4", "5", "6", "7", "8"];
+
+  const customizeLabels = {
+    "1": { "0": "Appeal Board" },
+    "2": { "1": "Character (Left)", "2": "Character (Right)" },
+    "3": { "1": "Game Background (System)", "2": "Game Background (Play)" },
+    "4": { "0": "Lane Background (Single)" },
+    "5": { "0": "Lane Background (Double)" },
+    "6": { "0": "Lane Cover (Single)" },
+    "7": { "0": "Lane Cover (Double)" },
+    "8": { "0": "Song Video" },
+  };
+
+  const setNested = (groupKey, itemKey, nextValue) => {
+    const prevGroup = current?.[groupKey] && typeof current[groupKey] === "object" ? current[groupKey] : {};
+    const nextGroup = { ...prevGroup, [itemKey]: nextValue };
+    const nextCustomize = { ...current, [groupKey]: nextGroup };
+    onChangeCustomize(nextCustomize);
+  };
+
+  return (
+    <Flex direction="column" gap={2}>
+      {topKeys.map((groupKey) => {
+        const group = current?.[groupKey] && typeof current[groupKey] === "object" ? current[groupKey] : {};
+        const itemKeys = Object.keys(group).length
+          ? Object.keys(group)
+          : Object.keys(customizeLabels?.[groupKey] || {}).length
+            ? Object.keys(customizeLabels[groupKey])
+            : ["0"];
+        return (
+          <Flex key={`customize-group-${groupKey}`} direction="column" gap={1}>
+            <Flex wrap="wrap" gap={2}>
+              {itemKeys.map((itemKey) => (
+                <Flex key={`customize-${groupKey}-${itemKey}`} direction="column">
+                  <Text fontSize="xs" opacity={0.85}>
+                    {customizeLabels?.[groupKey]?.[itemKey] || "customize"}
+                  </Text>
+                  <Input
+                    type="number"
+                    value={String(group?.[itemKey] ?? -1)}
+                    onChange={(e) => setNested(groupKey, itemKey, parseInt(e.target.value || "-1"))}
+                    w="6.6rem"
+                    size="xs"
+                  />
+                </Flex>
+              ))}
+            </Flex>
+          </Flex>
+        );
+      })}
+    </Flex>
+  );
 };
 
 
-const ddrSettingsFormConfig = ({ setSelectedDdrVersionKey, selectedDdrVersionKey, ddrVersionKeys, ddrVersionSettings, setDdrVersionSettingsParam, profileIds, profiles, smallInputWidth, onChangeRivals, currentRivalKey, selectedDdrProfileId }) => ([
-  {
+const ddrSettingsFormConfig = ({ setSelectedDdrVersionKey, selectedDdrVersionKey, ddrVersionKeys, ddrVersionSettings, setDdrVersionSettingsParam, profileIds, profiles, smallInputWidth, onChangeRivals, currentRivalKey, selectedDdrProfileId }) => {
+  const versionLabelMap = {
+    "19": "A20P/A3",
+    "20": "WORLD",
+  };
+
+  const baseVersionSetting = {
     label: "Version",
     formInput: (
       <Flex>
@@ -78,10 +141,74 @@ const ddrSettingsFormConfig = ({ setSelectedDdrVersionKey, selectedDdrVersionKey
           onChange={(e) => setSelectedDdrVersionKey(`${e.target.value}`)}
           value={selectedDdrVersionKey}
           optionValues={ddrVersionKeys}
+          optionLabels={(ddrVersionKeys || []).map((k) => versionLabelMap?.[`${k}`] ?? `${k}`)}
         />
       </Flex>
     ),
-  },
+  };
+
+  // DDR v20 uses different payload keys than the older versions.
+  if (`${selectedDdrVersionKey}` === "20") {
+    return [
+      baseVersionSetting,
+      {
+        label: "Name",
+        formInput: (
+          <Input
+            value={ddrVersionSettings?.common_dancername ?? ""}
+            maxLength={8}
+            onChange={(e) => setDdrVersionSettingsParam(e.target.value, "common_dancername")}
+          />
+        ),
+      },
+      {
+        label: "Area",
+        formInput: (
+          <Input
+            value={ddrVersionSettings?.common_area ?? ""}
+            onChange={(e) => setDdrVersionSettingsParam(parseInt(e.target.value || "0"), "common_area")}
+          />
+        ),
+      },
+      {
+        label: "Rivals",
+        formInput: (
+          <>
+            {rivalKeys.map((currentRivalKey, i) => (
+              <SettingsSelect
+                value={ddrVersionSettings?.[currentRivalKey] || ""}
+                optionValues={filterRivalIds({ profileIds, currentRivalKey, ddrVersionSettings, profiles, selectedDdrVersionKey, selectedDdrProfileId })}
+                optionLabels={filterRivalIds({ profileIds, currentRivalKey, ddrVersionSettings, profiles, selectedDdrVersionKey, selectedDdrProfileId })?.map(
+                  (id) =>
+                    `${addDashToId(id)} - ${getNameFromProfileIdAndVersionKey(
+                      profiles,
+                      id,
+                      selectedDdrVersionKey
+                    )}`
+                )}
+                placeholder="None"
+                disabled={i > 0 && !ddrVersionSettings?.[`rival_${i}_ddr_id`]}
+                onChange={(e) => onChangeRivals(e.target.value, currentRivalKey)}
+                w={smallInputWidth}
+              />
+            ))}
+          </>
+        ),
+      },
+      {
+        label: "Customize",
+        formInput: (
+          <CustomizeDropdownEditor
+            customize={ddrVersionSettings?.customize}
+            onChangeCustomize={(nextCustomize) => setDdrVersionSettingsParam(nextCustomize, "customize")}
+          />
+        ),
+      },
+    ];
+  }
+
+  return ([
+    baseVersionSetting,
   {
     label: "Name",
     formInput: (
@@ -200,7 +327,8 @@ const ddrSettingsFormConfig = ({ setSelectedDdrVersionKey, selectedDdrVersionKey
       </>
     ),
   },
-]);
+  ]);
+};
 
 export {
   dropdownOptions,

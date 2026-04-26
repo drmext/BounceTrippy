@@ -1,13 +1,12 @@
 import { useToast } from '@chakra-ui/react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import axios from 'axios';
-import { useState, useEffect } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { prepareVersionSettings } from './helpers';
 
 function useGlobalData() {
     const queryClient = useQueryClient()
     const [isOnline, setIsOnline] = useState(null);
-    const [settings, setSettings] = useState(null);
     const [selectedDdrProfileId, setSelectedDdrProfileId] = useState(null);
     const [selectedGfdmProfileId, setSelectedGfdmProfileId] = useState(null);
     const [selectedIidxProfileId, setSelectedIidxProfileId] = useState(null);
@@ -31,10 +30,12 @@ function useGlobalData() {
     const [apiUrl, setApiUrl] = useState(null);
     const [ddrJson, setDdrJson] = useState(null);
     const [gfdmJson, setGfdmJson] = useState(null);
-    const [iidxJson, setIidxJson] = useState(null);
-    const [iidxNotecountsJson, setIidxNotecountsJson] = useState(null);
 
     const [selectedGame, setSelectedGame] = useState('DDR')
+
+    // Track profile changes so we can snap version to latest on profile switch.
+    const prevSelectedDdrProfileIdRef = useRef(null);
+    const prevSelectedIidxProfileIdRef = useRef(null);
 
     const saveVersionString = {
         DDR: selectedDdrVersionKey,
@@ -106,7 +107,6 @@ function useGlobalData() {
                 `${apiUrl}/ddr/profiles/${selectedDdrProfileId}/${selectedDdrVersionKey}`,
                 prepareVersionSettings(ddrVersionSettings)
             ),
-            getScoresByProfileId: () => axios.get(`${apiUrl}/ddr/scores/${selectedDdrProfileId}`),
         },
         gfdm: {
             getScoresByProfileId: () => axios.get(`${apiUrl}/gfdm/guitarfreaks/scores/${selectedGfdmProfileId}`),
@@ -136,7 +136,7 @@ function useGlobalData() {
     useQuery(
         ["fetchSettings"],
         () => API.settings.getConfig(),
-        { ...disableRetry, onSuccess: res => setSettings(res.data.settings), enabled: !!apiUrl }
+        { ...disableRetry, enabled: !!apiUrl }
     );
 
     useQuery(
@@ -150,17 +150,36 @@ function useGlobalData() {
         }
     );
 
-    useQuery(
+    /** Load IIDX static JSON only when the IIDX tab is active — faster initial load + less memory on other tabs */
+    const fetchIidxJsonQuery = useQuery(
         ["fetchIidxJson"],
         () => API.settings.getIidxJson(),
-        { ...disableRetry, onSuccess: res => setIidxJson(res.data), }
+        { ...disableRetry, enabled: selectedGame === "IIDX" }
     );
 
-    useQuery(
+    const fetchIidxNotecountsQuery = useQuery(
         ["fetchIidxNotecountJson"],
         () => API.settings.getIidxNotecountsJson(),
-        { ...disableRetry, onSuccess: res => setIidxNotecountsJson(res.data), enabled: true }
+        { ...disableRetry, enabled: selectedGame === "IIDX" }
     );
+
+    /** Same shape as before `setIidxJson(res.data)` — HTTP body from axios */
+    const iidxJsonBody = fetchIidxJsonQuery.data?.data ?? null;
+
+    /** O(1) song lookup; built once per metadata load instead of `reduce` on every render */
+    const iidxMusicById = useMemo(() => {
+        const rows = iidxJsonBody?.data;
+        if (!Array.isArray(rows)) return null;
+        const out = {};
+        for (let i = 0; i < rows.length; i++) {
+            const row = rows[i];
+            const id = row?.song_id;
+            if (id != null) out[id] = row;
+        }
+        return out;
+    }, [iidxJsonBody]);
+
+    const iidxNotecountsJson = fetchIidxNotecountsQuery.data?.data ?? null;
 
     useQuery(
         ["fetchGfdmJson"],
@@ -182,13 +201,27 @@ function useGlobalData() {
         }
     );
 
-    // DDR
+    // DDR — sort once in `select` so the list component does not allocate/sort again (faster + less work per render).
     const getDdrScoresByProfileIdQuery = useQuery(
         ["getDdrScoresByProfileId", selectedDdrProfileId],
         () => API.ddr.getScoresByProfileId(selectedDdrProfileId),
         {
             ...disableRetry,
             enabled: !!selectedDdrProfileId && !!apiUrl,
+            select: (axiosResponse) => {
+                // The DDR scores component expects `getScoresQuery.data.data` to be an array.
+                // With axios, `axiosResponse.data` is the response body.
+                const rows = axiosResponse?.data;
+                if (!Array.isArray(rows) || rows.length === 0) return axiosResponse;
+
+                const sorted = [...rows].sort((a, b) => b.timestamp - a.timestamp); // newest first
+
+                // Preserve the axios response shape, but replace the array payload with the sorted array.
+                return {
+                    ...axiosResponse,
+                    data: sorted,
+                };
+            },
         }
     );
 
@@ -276,29 +309,55 @@ function useGlobalData() {
     const getIidxProfilesQuery = useQuery(
         ["getIidxProfiles"],
         () => axios.get(`${apiUrl}/iidx/profiles`),
-        { ...disableRetry, enabled: !!apiUrl }
+        { ...disableRetry, enabled: !!apiUrl && selectedGame === "IIDX" }
     );
 
     const getIidxScoresByProfileIdQuery = useQuery(
         ["getIidxScoresByProfileId", selectedIidxProfileId],
         () => axios.get(`${apiUrl}/iidx/scores/${selectedIidxProfileId}`),
-        { ...disableRetry, enabled: !!selectedIidxProfileId && !!apiUrl }
+        {
+            ...disableRetry,
+            enabled: !!selectedIidxProfileId && !!apiUrl && selectedGame === "IIDX",
+            select: (axiosResponse) => {
+                const body = axiosResponse?.data;
+                const rows = Array.isArray(body) ? body : body?.data;
+                if (!Array.isArray(rows) || rows.length === 0) return axiosResponse;
+                const sorted = [...rows].sort(
+                    (a, b) => (Number(b?.timestamp) || 0) - (Number(a?.timestamp) || 0)
+                );
+                if (Array.isArray(body)) {
+                    return { ...axiosResponse, data: sorted };
+                }
+                return { ...axiosResponse, data: { ...body, data: sorted } };
+            },
+        }
     );
 
-    const getSelectedDdrProfileById = (profileId) =>
-        getDdrProfilesQuery?.data?.data?.find(
-            (profile) => profile.ddr_id === parseInt(profileId)
-        );
+    const ddrProfilesData = useMemo(
+        () => getDdrProfilesQuery?.data?.data ?? [],
+        [getDdrProfilesQuery?.data?.data]
+    );
+    const gfdmProfilesData = useMemo(
+        () => getGfdmProfilesQuery?.data?.data ?? [],
+        [getGfdmProfilesQuery?.data?.data]
+    );
+    const iidxProfilesData = useMemo(
+        () => getIidxProfilesQuery?.data?.data ?? [],
+        [getIidxProfilesQuery?.data?.data]
+    );
 
-    const getSelectedGfdmProfileById = (profileId) =>
-        getGfdmProfilesQuery?.data?.data?.find(
-            (profile) => profile.gitadora_id === parseInt(profileId)
-        );
-
-    const getSelectedIidxProfileById = (profileId) =>
-        getIidxProfilesQuery?.data?.data?.find(
-            (profile) => profile.iidx_id === parseInt(profileId)
-        );
+    const selectedDdrProfile = useMemo(
+        () => ddrProfilesData.find((profile) => profile.ddr_id === parseInt(selectedDdrProfileId)),
+        [ddrProfilesData, selectedDdrProfileId]
+    );
+    const selectedGfdmProfile = useMemo(
+        () => gfdmProfilesData.find((profile) => profile.gitadora_id === parseInt(selectedGfdmProfileId)),
+        [gfdmProfilesData, selectedGfdmProfileId]
+    );
+    const selectedIidxProfile = useMemo(
+        () => iidxProfilesData.find((profile) => profile.iidx_id === parseInt(selectedIidxProfileId)),
+        [iidxProfilesData, selectedIidxProfileId]
+    );
 
     const updateMainIIDXSettingsMutation = useMutation(
         () => API.iidx.updateSettings({ selectedIidxProfileId, card: mainIIDXSettings.card, pin: mainIIDXSettings.pin }),
@@ -416,29 +475,55 @@ function useGlobalData() {
 
     // DDR - if a profile is selected, get all its versions and settings    
     useEffect(() => {
-        if (!selectedDdrProfileId) return;
+        if (!selectedDdrProfileId) {
+            setSelectedDdrVersionKey(null);
+            setDdrVersionSettings(null);
+            prevSelectedDdrProfileIdRef.current = null;
+            return;
+        }
+        const selectedProfile = selectedDdrProfile;
 
-        setSelectedDdrVersionKey(null);
-        const selectedProfile = getSelectedDdrProfileById(selectedDdrProfileId);
-
-        if (!selectedProfile) return;
+        if (!selectedProfile) {
+            setDdrVersionSettings(null);
+            return;
+        }
 
         const versionObjectKeys = Object.keys(selectedProfile.version);
-        if (!versionObjectKeys.length) return;
-        setDdrVersionKeys(versionObjectKeys.map((v) => parseInt(v)));
+        if (!versionObjectKeys.length) {
+            setDdrVersionKeys([]);
+            setSelectedDdrVersionKey(null);
+            setDdrVersionSettings(null);
+            prevSelectedDdrProfileIdRef.current = selectedDdrProfileId;
+            return;
+        }
+        const versionKeys = versionObjectKeys.map((v) => parseInt(v));
+        setDdrVersionKeys(versionKeys);
+
+        const latestVersionKey = `${Math.max(...versionKeys)}`;
+        const prevProfileId = prevSelectedDdrProfileIdRef.current;
+        const profileChanged = prevProfileId !== selectedDdrProfileId;
+
+        // On profile switch: always show the latest version for that profile.
+        // On same profile: keep current version if still valid, otherwise default to latest.
+        const hasCurrent = selectedDdrVersionKey && versionObjectKeys.includes(`${selectedDdrVersionKey}`);
+        const nextVersionKey = profileChanged ? latestVersionKey : (hasCurrent ? `${selectedDdrVersionKey}` : latestVersionKey);
+        setSelectedDdrVersionKey(nextVersionKey);
+        setDdrVersionSettings(selectedProfile?.version?.[nextVersionKey] ?? null);
 
         setMainDDRSettings({
             pin: selectedProfile.pin,
             card: selectedProfile.card,
         });
-    }, [selectedDdrProfileId]);
+
+        prevSelectedDdrProfileIdRef.current = selectedDdrProfileId;
+    }, [selectedDdrProfileId, selectedDdrProfile, selectedDdrVersionKey]);
 
     // GFDM - if a profile is selected, get all its versions and settings    
     useEffect(() => {
-        if (!selectedGfdmProfileId) return;
+        if (!selectedGfdmProfileId || !selectedGfdmProfile) return;
 
         setSelectedGfdmVersionKey(null);
-        const selectedProfile = getSelectedGfdmProfileById(selectedGfdmProfileId);
+        const selectedProfile = selectedGfdmProfile;
 
         if (!selectedProfile) return;
 
@@ -450,32 +535,56 @@ function useGlobalData() {
             pin: selectedProfile.pin,
             card: selectedProfile.card,
         });
-    }, [selectedGfdmProfileId]);
+    }, [selectedGfdmProfileId, selectedGfdmProfile]);
 
     // IIDX - if a profile is selected, get all its versions and settings    
     useEffect(() => {
-        if (!selectedIidxProfileId) return;
-        setSelectedIidxVersionKey(null);
-        const selectedProfile = getSelectedIidxProfileById(selectedIidxProfileId);
+        if (!selectedIidxProfileId) {
+            setSelectedIidxVersionKey(null);
+            setIidxVersionSettings(null);
+            prevSelectedIidxProfileIdRef.current = null;
+            return;
+        }
+        const selectedProfile = selectedIidxProfile;
         if (!selectedProfile) return;
 
         const versionObjectKeys = Object.keys(selectedProfile.version);
-        if (!versionObjectKeys.length) return;
-        setIidxVersionKeys(versionObjectKeys.map((v) => parseInt(v)));
+        if (!versionObjectKeys.length) {
+            setIidxVersionKeys([]);
+            setSelectedIidxVersionKey(null);
+            setIidxVersionSettings(null);
+            prevSelectedIidxProfileIdRef.current = selectedIidxProfileId;
+            return;
+        }
+
+        const versionKeys = versionObjectKeys.map((v) => parseInt(v));
+        setIidxVersionKeys(versionKeys);
+
+        const latestVersionKey = `${Math.max(...versionKeys)}`;
+        const prevProfileId = prevSelectedIidxProfileIdRef.current;
+        const profileChanged = prevProfileId !== selectedIidxProfileId;
+
+        // On profile switch: always show the latest version for that profile.
+        // On same profile: keep current version if still valid, otherwise default to latest.
+        const hasCurrent = selectedIidxVersionKey && versionObjectKeys.includes(`${selectedIidxVersionKey}`);
+        const nextVersionKey = profileChanged ? latestVersionKey : (hasCurrent ? `${selectedIidxVersionKey}` : latestVersionKey);
+        setSelectedIidxVersionKey(nextVersionKey);
+        setIidxVersionSettings(selectedProfile?.version?.[nextVersionKey] ?? null);
 
         setMainIIDXSettings({
             pin: selectedProfile.pin,
             card: selectedProfile.card,
         });
-    }, [selectedIidxProfileId]);
+        prevSelectedIidxProfileIdRef.current = selectedIidxProfileId;
+    }, [selectedIidxProfileId, selectedIidxProfile, selectedIidxVersionKey]);
 
     // Set default version key to latest if the data exists
     useEffect(() => {
-        if (ddrVersionKeys?.length > 0) {
+        if (!selectedDdrVersionKey && ddrVersionKeys?.length > 0) {
             const defaultVersionKey = Math.max(...ddrVersionKeys);
             setSelectedDdrVersionKey(`${defaultVersionKey}`);
         }
-    }, [ddrVersionKeys]);
+    }, [ddrVersionKeys, selectedDdrVersionKey]);
 
     useEffect(() => {
         if (gfdmVersionKeys?.length > 0) {
@@ -485,33 +594,35 @@ function useGlobalData() {
     }, [gfdmVersionKeys]);
 
     useEffect(() => {
-        if (iidxVersionKeys?.length > 0) {
+        if (!selectedIidxVersionKey && iidxVersionKeys?.length > 0) {
             const defaultVersionKey = Math.max(...iidxVersionKeys);
             setSelectedIidxVersionKey(`${defaultVersionKey}`);
         }
-    }, [iidxVersionKeys]);
+    }, [iidxVersionKeys, selectedIidxVersionKey]);
 
 
     // DDR
     useEffect(() => {
-        if (!selectedDdrVersionKey) return;
-        const selectedProfile = getSelectedDdrProfileById(selectedDdrProfileId);
-        setDdrVersionSettings(selectedProfile?.version[selectedDdrVersionKey]);
-    }, [selectedDdrVersionKey]);
+        if (!selectedDdrVersionKey || !selectedDdrProfile) return;
+        const selectedProfile = selectedDdrProfile;
+        const nextSettings = selectedProfile?.version?.[selectedDdrVersionKey];
+        if (!nextSettings) return;
+        setDdrVersionSettings(nextSettings);
+    }, [selectedDdrVersionKey, selectedDdrProfile]);
 
     // GFDM
     useEffect(() => {
-        if (!selectedGfdmVersionKey) return;
-        const selectedProfile = getSelectedGfdmProfileById(selectedGfdmProfileId);
+        if (!selectedGfdmVersionKey || !selectedGfdmProfile) return;
+        const selectedProfile = selectedGfdmProfile;
         setGfdmVersionSettings(selectedProfile?.version[selectedGfdmVersionKey]);
-    }, [selectedGfdmVersionKey]);
+    }, [selectedGfdmVersionKey, selectedGfdmProfile]);
 
     // IIDX
     useEffect(() => {
-        if (!selectedIidxVersionKey) return;
-        const selectedProfile = getSelectedIidxProfileById(selectedIidxProfileId);
+        if (!selectedIidxVersionKey || !selectedIidxProfile) return;
+        const selectedProfile = selectedIidxProfile;
         setIidxVersionSettings(selectedProfile?.version[selectedIidxVersionKey]);
-    }, [selectedIidxVersionKey]);
+    }, [selectedIidxVersionKey, selectedIidxProfile]);
 
 
     // TODO: use react query mutation
@@ -578,7 +689,7 @@ function useGlobalData() {
         setSelectedGame,
         ddrJson,
         gfdmJson,
-        iidxJson,
+        iidxMusicById,
         iidxNotecountsJson,
     };
 }

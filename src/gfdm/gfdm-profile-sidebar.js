@@ -1,5 +1,4 @@
-import React, { useEffect } from 'react'
-import { Box, Button, Divider, Heading, Input, Select, Text, VStack } from "@chakra-ui/react";
+import { Box, Button, Divider, Heading, HStack, IconButton, Input, Select, Text, Tooltip, VStack } from "@chakra-ui/react";
 import { gfdmSettingsFormConfig } from "./gfdm-settings-form-config";
 import { addDashToId } from "../helpers";
 
@@ -78,21 +77,24 @@ const GfdmProfilesSidebar = ({
     const profilesSection = <Box w={"100%"} fontSize="0.75rem">
         <Box mb="0.5rem">
             <Text>ID</Text>
-            <Select
-                placeholder={"Select a Profile"}
-                onChange={(e) => setSelectedGfdmProfileIdHandler(e.target.value)}
-                w={!selectedGfdmProfileId ? "100%" : smallInputWidth}
-            >
-                {profileIds?.map((profileId) => (
-                    <option
-                        style={{ height: "2rem" }}
-                        label={`${addDashToId(profileId)} - ${profiles.find((p) => p.gitadora_id === profileId)?.card
-                            }`}
-                        value={profileId}
-                        key={`profile-${profileId}`}
-                    ></option>
-                ))}
-            </Select>
+            <HStack spacing={1} w="100%">
+                <Select
+                    value={selectedGfdmProfileId ?? ""}
+                    onChange={(e) => setSelectedGfdmProfileIdHandler(e.target.value)}
+                    w={!selectedGfdmProfileId ? "100%" : smallInputWidth}
+                    placeholder="Select a Profile"
+                >
+                    {profileIds?.map((profileId) => (
+                        <option
+                            style={{ height: "2rem" }}
+                            label={`${addDashToId(profileId)} - ${profiles.find((p) => p.gitadora_id === profileId)?.card
+                                }`}
+                            value={profileId}
+                            key={`profile-${profileId}`}
+                        ></option>
+                    ))}
+                </Select>
+            </HStack>
         </Box>
         <Box mb="0.5rem">
             <Text>Card</Text>
@@ -110,16 +112,36 @@ const GfdmProfilesSidebar = ({
                 onChange={(e) => setNewPin(e.target.value)}
             />
         </Box>
-        <br />
-        <Divider />
-        <br />
+        {selectedGfdmProfileId ? (
+            <>
+                <br />
+                <Divider />
+                <br />
+            </>
+        ) : null}
     </Box>
 
     return (
         <>
-            <Heading size="md" textAlign="left" mb="0.5rem">
-                Profile
-            </Heading>
+            <HStack align="center" spacing={1} mb="0.5rem">
+                <Heading size="md" textAlign="left">
+                    Profile
+                </Heading>
+                {selectedGfdmProfileId ? (
+                    <Tooltip label="Deselect" hasArrow placement="top">
+                        <IconButton
+                            aria-label="Deselect profile"
+                            size="xs"
+                            variant="ghost"
+                            minW="1.5rem"
+                            w="1.5rem"
+                            h="1.5rem"
+                            onClick={() => setSelectedGfdmProfileIdHandler("")}
+                            icon={<Box as="span" lineHeight="1" fontSize="0.8rem">✕</Box>}
+                        />
+                    </Tooltip>
+                ) : null}
+            </HStack>
             {profilesSection}
             <VStack fontSize="0.75rem" width="10rem">
                 <br />
@@ -137,20 +159,22 @@ const GfdmProfilesSidebar = ({
                     ))}
                 <br />
                 <br />
-                <Button
-                    onClick={saveAllGfdm}
-                    width="100%"
-                    size="sm"
-                    //color="white"
-                    //backgroundColor="#f00"
-                    variant="save"
-                    // textShadow="-1px -1px 0 #f00, 1px -1px 0 #f00, -1px 1px 0 #f00, 1px 1px 0 #f00"
-                    //outline="0.5px solid #f00"
-                    //textStroke="2px #f00"
-                    disabled={savingInProgress}
-                >
-                    Save Settings
-                </Button>
+                {!selectedGfdmProfileId ? null : (
+                    <Button
+                        onClick={saveAllGfdm}
+                        width="100%"
+                        size="sm"
+                        //color="white"
+                        //backgroundColor="#f00"
+                        variant="save"
+                        // textShadow="-1px -1px 0 #f00, 1px -1px 0 #f00, -1px 1px 0 #f00, 1px 1px 0 #f00"
+                        //outline="0.5px solid #f00"
+                        //textStroke="2px #f00"
+                        disabled={savingInProgress}
+                    >
+                        Save Settings
+                    </Button>
+                )}
             </VStack>
             <br />
             <br />

@@ -1,4 +1,4 @@
-import { Flex, Input, Select, Switch } from "@chakra-ui/react";
+import { Flex, Input, Select } from "@chakra-ui/react";
 import { addDashToId, buildOptions} from "../helpers";
 
 const SettingsSelect = ({ value, optionValues, optionLabels, ...props }) => {
@@ -89,7 +89,7 @@ const gfdmSettingsFormConfig = ({ setSelectedGfdmVersionKey, selectedGfdmVersion
                   )}`
               )}
               placeholder="None"
-              disabled={i > 0 && !rivalIdsExist || rivalIdLength < i}
+              disabled={(i > 0 && !rivalIdsExist) || rivalIdLength < i}
               onChange={(e) => onChangeRivals(e.target.value, currentRivalKey)}
               w={smallInputWidth}
             />

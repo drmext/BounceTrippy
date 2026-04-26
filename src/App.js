@@ -1,6 +1,6 @@
 /* eslint-disable no-unused-expressions */
 import "./App.css";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import {
   Container,
   Box,
@@ -8,10 +8,13 @@ import {
   Heading,
   VStack,
   Flex,
-
   Tabs,
   TabList,
   Tab,
+  useColorMode,
+  Switch,
+  FormControl,
+  FormLabel,
 } from "@chakra-ui/react";
 
 import DdrScoresSection from "./ddr/ddr-scores-section";
@@ -69,7 +72,7 @@ function App() {
     setSelectedGame,
     ddrJson,
     gfdmJson,
-    iidxJson,
+    iidxMusicById,
     updateMainIIDXSettingsMutation,
     iidxVersionKeys,
     iidxVersionSettings,
@@ -80,51 +83,103 @@ function App() {
   } = useGlobalData()
 
 
-  const setSelectedDdrProfileIdHandler = (value) => setSelectedDdrProfileId(value);
+  const setSelectedDdrProfileIdHandler = (value) => {
+    const next = value === "" ? null : value;
+    setSelectedDdrProfileId(next);
+    if (!next) setMainDDRSettings({ card: "", pin: "" });
+  };
   const setNewDdrCardHandler = (newValue) => setMainDDRSettings((prev) => ({ ...prev, card: newValue }))
   const setNewDdrTimingDispHandler = (newValue) => setMainDDRSettings((prev) => ({ ...prev, timing_disp: newValue }))
   const setNewDdrPinHandler = (newValue) => setMainDDRSettings((prev) => ({ ...prev, pin: newValue }))
 
-  const setSelectedGfdmProfileIdHandler = (value) => setSelectedGfdmProfileId(value);
+  const setSelectedGfdmProfileIdHandler = (value) => {
+    const next = value === "" ? null : value;
+    setSelectedGfdmProfileId(next);
+    if (!next) setMainGFDMSettings({ card: "", pin: "" });
+  };
   const setNewGfdmCardHandler = (newValue) => setMainGFDMSettings((prev) => ({ ...prev, card: newValue }))
   const setNewGfdmPinHandler = (newValue) => setMainGFDMSettings((prev) => ({ ...prev, pin: newValue }))
 
-  const setSelectedIidxProfileIdHandler = (value) => setSelectedIidxProfileId(value);
+  const setSelectedIidxProfileIdHandler = (value) => {
+    const next = value === "" ? null : value;
+    setSelectedIidxProfileId(next);
+    if (!next) setMainIIDXSettings({ card: "", pin: "" });
+  };
   const setNewIidxCardHandler = (newValue) => setMainIIDXSettings((prev) => ({ ...prev, card: newValue }))
   const setNewIidxTimingDispHandler = (newValue) => setMainIIDXSettings((prev) => ({ ...prev, timing_disp: newValue }))
   const setNewIidxPinHandler = (newValue) => setMainDDRSettings((prev) => ({ ...prev, pin: newValue }))
 
-  const onSelectGameHandler = gameIndex => setSelectedGame(games[gameIndex])
+  const onSelectGameHandler = (gameIndex) => {
+    const nextGame = games[gameIndex];
+    // Always clear the destination profile selection when entering DDR/IIDX
+    // so it doesn't carry over when switching tabs (incl. from GFDM).
+    if (nextGame === DDR) {
+      setSelectedDdrProfileId(null);
+      setMainDDRSettings({ card: "", pin: "" });
+    }
+    if (nextGame === IIDX) {
+      setSelectedIidxProfileId(null);
+      setMainIIDXSettings({ card: "", pin: "" });
+    }
+    if (nextGame === GFDM) {
+      setSelectedGfdmProfileId(null);
+      setMainGFDMSettings({ card: "", pin: "" });
+    }
+
+    setSelectedGame(nextGame);
+  }
   const onChangeStartupArcHandler = (e) => onChangeStartupArc(e.target.files[0], selectedGame)
 
   const [showSidebar, setShowSidebar] = useState(true)
-  const maxWidth = "1020px";
+  /** Full browser width; inner flex row lets the scores table fill remaining space beside the sidebar */
+  const maxWidth = "100%";
+  /** Match scores max width so header + (optional sidebar) + scores share one centered block on large viewports */
+  const SCORES_MAX_W = "60rem";
+  const PROFILE_SIDEBAR_W = "9.75rem";
+  const SIDEBAR_MAIN_GAP = "2rem";
+  /** Sidebar visible: full row width = sidebar + gap + scores. Sidebar hidden (monkey click): same horizontal bounds as scores-only column */
+  const activeScoresRowMaxW =
+    selectedGame === DDR || selectedGame === IIDX || selectedGame === GFDM
+      ? showSidebar
+        ? { base: "100%", lg: `calc(${PROFILE_SIDEBAR_W} + ${SIDEBAR_MAIN_GAP} + ${SCORES_MAX_W})` }
+        : { base: "100%", lg: SCORES_MAX_W }
+      : "100%";
+  const activeScoresRowMx =
+    selectedGame === DDR || selectedGame === IIDX || selectedGame === GFDM ? { base: 0, lg: "auto" } : 0;
+
+  const { colorMode, toggleColorMode } = useColorMode();
 
 
   const fileUploadText = {
     [DDR]: 'select startup.arc to load metadata',
     [IIDX]: 'select music_data.bin to load metadata',
-    [GFDM]: 'Coming Soon'
+    [GFDM]: 'select gitadora mdb_.xml to load metadata'
   }[selectedGame]
 
   const onClickMonkey = () => setShowSidebar(prev => !prev)
 
   return (
+    <Box minH="100vh" w="100%" bg="bg.canvas" color="fg.default">
     <VStack
       maxW={maxWidth}
-      backgroundColor="none"
+      w="100%"
+      backgroundColor="transparent"
       margin={"0 auto"}
       padding="1rem"
       align="left"
     >
+      <Box w="100%" maxW={activeScoresRowMaxW} mx={activeScoresRowMx}>
       <Flex
-        w={maxWidth}
+        w="100%"
         padding="0"
-        backgroundColor="none"
+        backgroundColor="transparent"
         mb="1rem"
         justify="space-between"
         alignItems="center"
-        borderBottom="1px solid #eee"
+        borderBottom="1px solid"
+        borderColor="border.subtle"
+        gap={3}
+        flexWrap="wrap"
       >
         <Heading onClick={onClickMonkey} fontSize="4rem" mb="0.75rem" _hover={{ filter: 'saturate(200%)' }} transition={'filter 0.25s ease-in-out'} userSelect={'none'}>🐵</Heading>
         <Tabs onChange={onSelectGameHandler}>
@@ -132,7 +187,19 @@ function App() {
             {games.map(game => <Tab key={`game-${game}`}>{game}</Tab>)}
           </TabList>
         </Tabs>
-        <Box width="14rem">
+        <FormControl display="flex" alignItems="center" w="auto" flexShrink={0}>
+          <FormLabel htmlFor="app-color-mode" mb="0" fontSize="xs" whiteSpace="nowrap" me={2}>
+            Dark mode
+          </FormLabel>
+          <Switch
+            id="app-color-mode"
+            size="sm"
+            isChecked={colorMode === "dark"}
+            onChange={toggleColorMode}
+            aria-label="Toggle dark mode"
+          />
+        </FormControl>
+        <Box width="14rem" flexShrink={0}>
           <input
             type="file"
             placeholder="select startup.arc"
@@ -143,9 +210,11 @@ function App() {
           <Text fontSize="xs">{fileUploadText}</Text>
         </Box>
       </Flex>
-      <Container maxW={maxWidth} padding="0">
-        <Flex>
-          <Box backgroundColor="none" w={"9.75rem"} display={showSidebar ? 'block' : 'none'} minH="100%" >
+      </Box>
+      <Container maxW={maxWidth} w="100%" padding="0">
+        <Box w="100%" maxW={activeScoresRowMaxW} mx={activeScoresRowMx}>
+        <Flex w="100%" align="flex-start" gap={showSidebar ? SIDEBAR_MAIN_GAP : 0}>
+          <Box backgroundColor="transparent" w={PROFILE_SIDEBAR_W} flexShrink={0} display={showSidebar ? 'block' : 'none'} minH="100%" >
             {
               selectedGame === IIDX ? <IidxProfileSidebar
                 saveAll={saveAllIidx}
@@ -203,14 +272,21 @@ function App() {
             }
           </Box>
 
-          <Box backgroundColor="none" maxW="1200px" height="100%" ml="2rem">
+          <Box
+            backgroundColor="transparent"
+            flex="1"
+            minW={0}
+            w="100%"
+            height="100%"
+            ml={showSidebar ? "2rem" : 0}
+          >
             {
               selectedGame === IIDX
                 ? <IidxScoresSection
                   selectedProfileId={selectedIidxProfileId}
                   getScoresQuery={getIidxScoresByProfileIdQuery}
                   notecounts={iidxNotecountsJson}
-                  DDR_MDB={iidxJson?.data?.reduce((o, key) => ({ ...o, [key.song_id]: key }), {})}
+                  DDR_MDB={iidxMusicById ?? {}}
                 /> :
                 selectedGame === DDR
                   ? <DdrScoresSection
@@ -228,8 +304,10 @@ function App() {
             }
           </Box>
         </Flex>
+        </Box>
       </Container>
-    </VStack >
+    </VStack>
+    </Box>
   );
 }
 
