@@ -10,7 +10,12 @@ import theme from './theme';
 
 const root = ReactDOM.createRoot(document.getElementById('root'));
 
-const queryClient = new QueryClient()
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { networkMode: "always" },
+    mutations: { networkMode: "always" },
+  },
+})
 
 root.render(
   <React.StrictMode>

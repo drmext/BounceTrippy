@@ -37,6 +37,34 @@ function useGlobalData() {
     const prevSelectedDdrProfileIdRef = useRef(null);
     const prevSelectedIidxProfileIdRef = useRef(null);
 
+    // Keep API on the origin that loaded /webui (do not rewrite localhost -> 127.0.0.1).
+    useEffect(() => {
+        let cancelled = false;
+        const port = window.location.port || "8000";
+        const localhostBase = `http://localhost:${port}`;
+        const host = (window.location.hostname || "").toLowerCase();
+
+        async function resolve() {
+            // CRA dev server proxies /config and /iidx/... to 127.0.0.1:8000.
+            if (window.location.port === "3000") {
+                if (!cancelled) setApiUrl(window.location.origin);
+                return;
+            }
+            if (!host || host === "localhost" || host === "127.0.0.1" || host === "::1") {
+                if (!cancelled) setApiUrl(window.location.origin);
+                return;
+            }
+            try {
+                await axios.get(`${window.location.origin}/config`, { timeout: 2000 });
+                if (!cancelled) setApiUrl(window.location.origin);
+            } catch {
+                if (!cancelled) setApiUrl(localhostBase);
+            }
+        }
+        resolve();
+        return () => { cancelled = true; };
+    }, []);
+
     const saveVersionString = {
         DDR: selectedDdrVersionKey,
         IIDX: selectedIidxVersionKey,
@@ -91,7 +119,6 @@ function useGlobalData() {
     const API = {
         settings: {
             getConfig: () => axios.get(`${apiUrl}/config`),
-            getMonkey: () => axios.get("./monkey.json"),
             getDdrJson: () => axios.get("./ddr.json"),
             getGfdmJson: () => axios.get("./gfdm.json"),
             getIidxJson: () => axios.get("./iidx.json"),
@@ -137,17 +164,6 @@ function useGlobalData() {
         ["fetchSettings"],
         () => API.settings.getConfig(),
         { ...disableRetry, enabled: !!apiUrl }
-    );
-
-    useQuery(
-        ["fetchMonkey"],
-        () => API.settings.getMonkey(),
-        {
-            ...disableRetry,
-            onSuccess: res => {
-                setApiUrl(`http://${res.data?.ip}:${res.data?.port}`)
-            }
-        }
     );
 
     /** Load IIDX static JSON only when the IIDX tab is active — faster initial load + less memory on other tabs */
@@ -233,32 +249,23 @@ function useGlobalData() {
 
     const updateMainDDRSettingsMutation = useMutation(
         () => API.ddr.updateSettings({ selectedDdrProfileId, card: mainDDRSettings.card, pin: mainDDRSettings.pin }),
-        {
-            ...disableRetry,
-            onSuccess: () => {
-                toast(toasts.saveSettings.success);
-                queryClient.invalidateQueries('getDdrProfiles')
-            },
-            onError: () => {
-                toast(toasts.saveSettings.failure);
-            },
-        }
+        { ...disableRetry }
     );
 
     const updateDdrProfileVersionSettingsMutation = useMutation(
         () => API.ddr.updateProfileByIdAndVersion({ selectedDdrProfileId, selectedDdrVersionKey, ddrVersionSettings }),
-        {
-            ...disableRetry,
-            onSuccess: (data) => {
-                // invalidate getDdrProfilesQuery
-            },
-        }
+        { ...disableRetry }
     );
 
     const saveAllDdr = async () => {
-        await updateMainDDRSettingsMutation.mutateAsync();
-        await updateDdrProfileVersionSettingsMutation.mutateAsync();
-        // reset and get everything
+        try {
+            await updateMainDDRSettingsMutation.mutateAsync();
+            await updateDdrProfileVersionSettingsMutation.mutateAsync();
+            await queryClient.invalidateQueries({ queryKey: ["getDdrProfiles"] });
+            toast(toasts.saveSettings.success);
+        } catch {
+            toast(toasts.saveSettings.failure);
+        }
     };
 
     // GFDM
@@ -627,14 +634,13 @@ function useGlobalData() {
 
     // TODO: use react query mutation
     const onChangeStartupArc = async (file, gameName) => {
-        const formData = new FormData();
-        formData.append("file", file);
+        if (!file) return;
         try {
-            await axios.post(`${apiUrl}/${gameName.toLowerCase()}/parse_mdb/upload`, formData, {
-                headers: {
-                    "Content-Type": "multipart/form-data",
-                },
-            });
+            await axios.post(
+                `${apiUrl}/${gameName.toLowerCase()}/parse_mdb/upload`,
+                file,
+                { headers: { "Content-Type": "application/octet-stream" } },
+            );
             toast(toasts.loadMetadata.success);
         } catch (e) {
             toast(toasts.loadMetadata.failure);
